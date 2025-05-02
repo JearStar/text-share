@@ -182,7 +182,6 @@ jobs:
   deploy-dev:
     name: Deploy to Dev
     needs: [frontend-test, backend-test]
-    if: ${{github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'}}
     runs-on: ubuntu-latest
     environment:
       name: development
@@ -196,7 +195,6 @@ jobs:
   deploy-stg:
     name: Deploy to Staging
     needs: deploy-dev
-    if: ${{github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'}}
     runs-on: ubuntu-latest
     environment:
       name: staging
@@ -210,7 +208,6 @@ jobs:
   deploy-prod:
     name: Deploy to Production
     needs: deploy-stg
-    if: ${{github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'}}
     runs-on: ubuntu-latest
     environment:
       name: production
