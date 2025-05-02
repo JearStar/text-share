@@ -1,0 +1,209 @@
+name: Deploy Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - feature/*
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+
+jobs:
+  backend-build:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '22.13.0'
+
+      - name: Log Node.js version
+        run: node -v
+
+      - name: Cache backend dependencies
+        uses: actions/cache@v2
+        with:
+          path: backend/node_modules
+          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-backend-
+
+      - name: Install backend dependencies
+        run: |
+          echo "Installing backend dependencies..."
+          cd backend
+          npm ci
+
+      - name: Build backend
+        run: |
+          echo "Building backend..."
+          cd backend
+          npm run build
+
+      - name: Upload backend build artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: backend-build
+          path: |
+            backend/dist
+
+  frontend-build:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '22.13.0'
+
+      - name: Log Node.js version
+        run: node -v
+
+      - name: Cache frontend dependencies
+        uses: actions/cache@v2
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-
+
+      - name: Install frontend dependencies
+        run: |
+          echo "Installing frontend dependencies..."
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          echo "Building frontend..."
+          cd frontend
+          npm run build
+
+      - name: Upload frontend build artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: frontend-build
+          path: frontend/build
+
+  backend-test:
+    name: Run Backend Tests
+    needs: backend-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '22.13.0'
+
+      - name: Cache backend dependencies
+        uses: actions/cache@v2
+        with:
+          path: backend/node_modules
+          key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-backend-
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Download backend build artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: backend-build
+
+      - name: Run backend tests
+        run: |
+          echo "Running backend tests..."
+
+
+  frontend-test:
+    name: Run Frontend Tests
+    needs: frontend-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '22.13.0'
+
+      - name: Cache node_modules
+        uses: actions/cache@v2
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-frontend-
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: frontend-build
+
+      - name: Run frontend tests
+        run: |
+          echo "Running frontend tests..."
+
+  deploy-dev:
+    name: Deploy to Dev
+    needs: [frontend-test, backend-test]
+    if: ${{github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'}}
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+    concurrency:
+      group: dev-deploy
+      cancel-in-progress: true
+    steps:
+      - name: Manual trigger for Dev deploy
+        run: echo "Dev deployment triggered manually"
+
+  deploy-stg:
+    name: Deploy to Staging
+    needs: deploy-dev
+    if: ${{github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'}}
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    concurrency:
+      group: staging-deploy
+      cancel-in-progress: true
+    steps:
+      - name: Manual trigger Staging deploy
+        run: echo "Staging deployment triggered manually"
+
+  deploy-prod:
+    name: Deploy to Production
+    needs: deploy-stg
+    if: ${{github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'}}
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: true
+    steps:
+      - name: Manual trigger Prod deploy
+        run: echo "Production deployment triggered manually"
