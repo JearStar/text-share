@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "types": ["mocha", "chai", "node"],
     "target": "ES5",
     "lib": ["dom", "es6"],
     "allowJs": true,
