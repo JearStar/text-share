@@ -179,22 +179,9 @@ jobs:
         run: |
           echo "Running frontend tests..."
 
-  deploy-dev:
-    name: Deploy to Dev
-    needs: [frontend-test, backend-test]
-    runs-on: ubuntu-latest
-    environment:
-      name: development
-    concurrency:
-      group: dev-deploy
-      cancel-in-progress: true
-    steps:
-      - name: Manual trigger for Dev deploy
-        run: echo "Dev deployment triggered manually"
-
   deploy-stg:
     name: Deploy to Staging
-    needs: deploy-dev
+    needs: [frontend-test, backend-test]
     runs-on: ubuntu-latest
     environment:
       name: staging
