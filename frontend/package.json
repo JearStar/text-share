@@ -54,5 +54,11 @@
     "eslint-plugin-react": "^7.37.5",
     "prettier": "^2.8.8",
     "ts-node": "^10.9.2"
-  }
+  },
+  "description": "hello",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
 }
