@@ -2,19 +2,19 @@ import express, { Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { randomBytes } from "crypto";
+import { randomBytes } from 'crypto';
 import { Resend } from 'resend';
 
 const router = express.Router();
 
-const JWT_SECRET = 'meow meow key'
+const JWT_SECRET = 'meow meow key';
 
 router.post('/signup', async (req: Request, res: Response) => {
   const { email, password, name } = req.body;
 
   const userExists = await prisma.user.findUnique({
     where: { email },
-  })
+  });
 
   if (userExists) {
     res.status(400).json({ error: 'Email already in use' });
@@ -33,16 +33,15 @@ router.post('/signup', async (req: Request, res: Response) => {
         password: hashedPassword,
         name,
         verificationToken,
-        tokenExpires
-      }
+        tokenExpires,
+      },
     });
   } catch (error) {
-    res.json({ error: error});
+    res.json({ error: error });
     return;
   }
 
   const verificationLink = `http://localhost:3000/api/auth/verify-email?token=${verificationToken}`;
-
 
   const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -50,8 +49,8 @@ router.post('/signup', async (req: Request, res: Response) => {
     from: 'test@resend.dev',
     to: email,
     subject: 'Account Verification',
-    html: `<p>Welcome to Text Share! Please verify your email with the following link: ${verificationLink}</p>`
-  })
+    html: `<p>Welcome to Text Share! Please verify your email with the following link: ${verificationLink}</p>`,
+  });
   res.status(200).json({ message: 'Signup successful, check your email to verify the account.' });
 });
 
@@ -66,8 +65,8 @@ router.get('/verify-email', async (req: Request, res: Response) => {
   const user = await prisma.user.findFirst({
     where: {
       verificationToken: token,
-      tokenExpires: { gt: new Date() }
-    }
+      tokenExpires: { gt: new Date() },
+    },
   });
 
   if (!user) {
@@ -80,8 +79,8 @@ router.get('/verify-email', async (req: Request, res: Response) => {
     data: {
       isVerified: true,
       verificationToken: null,
-      tokenExpires: null
-    }
+      tokenExpires: null,
+    },
   });
 
   res.json({ message: 'Email verified successfully!' });
@@ -91,34 +90,30 @@ router.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
   const user = await prisma.user.findUnique({
-    where: { email }
-  })
+    where: { email },
+  });
 
   if (!user) {
     res.status(401).json({ error: 'Invalid email or password' });
-    return
+    return;
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
     res.status(401).json({ error: 'Invalid email or password' });
-    return
+    return;
   }
 
   if (!user.isVerified) {
     res.status(403).json({ error: 'Please verify your email before logging in' });
-    return
+    return;
   }
 
-  const token = jwt.sign(
-    { userId: user.id, email: user.email},
-    JWT_SECRET,
-    { expiresIn: '1h' }
-  );
+  const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
 
   res.json({
     message: 'Logged in successfully',
-    token
+    token,
   });
 });
 
