@@ -1,13 +1,17 @@
 import express, { Request, Response } from 'express';
+import dotenv from 'dotenv';
 import cors from 'cors';
-import prisma from './lib/prisma';
+import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth';
 import documentRoutes from './routes/documents';
+
+dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 4000;
 
 app.use(cors());
+app.use(cookieParser());
 app.use(express.json());
 
 // Routes
