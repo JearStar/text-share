@@ -97,20 +97,24 @@ export async function loginUser(req: Request, res: Response) {
       });
     }
     res.status(403).json({
-      error: 'Your email is not verified. Please check your inbox for the verification link.'
+      error: 'Your email is not verified. Please check your inbox for the verification link.',
     });
     return;
   }
 
-  const accessToken = jwt.sign({ userId: user.id, email: user.email }, ACCESS_SECRET, { expiresIn: '1h' });
-  const refreshToken = jwt.sign({ userId: user.id, email: user.email }, REFRESH_SECRET, { expiresIn: '7d' });
+  const accessToken = jwt.sign({ userId: user.id, email: user.email }, ACCESS_SECRET, {
+    expiresIn: '1h',
+  });
+  const refreshToken = jwt.sign({ userId: user.id, email: user.email }, REFRESH_SECRET, {
+    expiresIn: '7d',
+  });
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV !== 'development',
     sameSite: process.env.NODE_ENV !== 'development' ? 'none' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  })
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
 
   res.json({
     message: 'Logged in successfully',
@@ -134,7 +138,9 @@ export async function verifyEmail(req: Request, res: Response) {
   });
 
   if (!user) {
-    res.status(400).json({ error: 'Token invalid or expired. Please login again to generate a new token' });
+    res
+      .status(400)
+      .json({ error: 'Token invalid or expired. Please login again to generate a new token' });
     return;
   }
 
@@ -169,9 +175,8 @@ export async function refreshToken(req: Request, res: Response) {
 
     res.json({
       message: 'Access token refreshed',
-      token: newAccessToken
+      token: newAccessToken,
     });
-
   } catch (err) {
     res.status(403).json({ error: 'Something went wrong' });
     console.log(err);

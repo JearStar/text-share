@@ -7,14 +7,14 @@ const router = express.Router();
 const signupLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
-  message: 'Too many signups, please try again later'
-})
+  message: 'Too many signups, please try again later',
+});
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
-  message: 'Too many login attempts, please try again later'
-})
+  message: 'Too many login attempts, please try again later',
+});
 
 router.post('/signup', signupLimiter, AuthService.signupUser);
 router.post('/login', loginLimiter, AuthService.loginUser);
