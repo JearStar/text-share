@@ -48,6 +48,7 @@ jobs:
         run: |
           echo "Building backend..."
           cd backend
+          npx prisma generate
           npm run build
 
       - name: Upload backend build artifacts
