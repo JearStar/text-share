@@ -1,0 +1,12 @@
+# Ignore node_modules
+node_modules/
+
+# Ignore environment variables
+.env
+
+# Ignore Prisma generated files
+prisma/generated/
+prisma/migrations/
+
+# Ignore backend build artifacts
+dist/
