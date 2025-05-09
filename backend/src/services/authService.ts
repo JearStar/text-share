@@ -9,6 +9,7 @@ const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.REFRESH_SECRET!;
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
 const RESEND_API_KEY = process.env.RESEND_API_KEY!;
+const SEVEN_DAYS_IN_MS = 1000 * 60 * 60 * 24 * 7;
 
 export async function signupUser(req: Request, res: Response) {
   const { email, password, name } = req.body;
@@ -25,16 +26,23 @@ export async function signupUser(req: Request, res: Response) {
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const verificationToken = generateToken();
-  const tokenExpires = generateTokenExpiry();
+  const tokenExpires = generateEmailTokenExpiry();
 
   try {
-    await prisma.user.create({
+    const user = await prisma.user.create({
       data: {
         email: email,
         password: hashedPassword,
         name: name,
-        verificationToken: hashToken(verificationToken),
-        tokenExpires: tokenExpires,
+      },
+    });
+
+    await prisma.emailToken.create({
+      data: {
+        tokenHash: hashToken(verificationToken),
+        type: 'VERIFY_EMAIL',
+        expiresAt: tokenExpires,
+        userId: user.id,
       },
     });
   } catch (error) {
@@ -74,16 +82,20 @@ export async function loginUser(req: Request, res: Response) {
   }
 
   if (!user.isVerified) {
-    if (user.tokenExpires && new Date(user.tokenExpires) < new Date()) {
+    const token = await prisma.emailToken.findFirst({
+      where: { userId: user.id, type: 'VERIFY_EMAIL', expiresAt: { gt: new Date() } },
+    });
+    // there is no verify email token or there is an expired email token, issue a new one
+    if (!token) {
       const verificationToken = generateToken();
-      const tokenExpires = generateTokenExpiry();
+      const tokenExpires = generateEmailTokenExpiry();
       const verificationLink = constructVerificationLink(verificationToken);
-
-      await prisma.user.update({
-        where: { id: user.id },
+      await prisma.emailToken.create({
         data: {
-          verificationToken: hashToken(verificationToken),
-          tokenExpires: tokenExpires,
+          tokenHash: hashToken(verificationToken),
+          type: 'VERIFY_EMAIL',
+          expiresAt: tokenExpires,
+          userId: user.id,
         },
       });
 
@@ -96,6 +108,7 @@ export async function loginUser(req: Request, res: Response) {
         html: `<p>Your previous verification link has expired. Please use this one: <a href="${verificationLink}">Verify Email</a></p>`,
       });
     }
+
     res.status(403).json({
       error: 'Your email is not verified. Please check your inbox for the verification link.',
     });
@@ -103,17 +116,25 @@ export async function loginUser(req: Request, res: Response) {
   }
 
   const accessToken = jwt.sign({ userId: user.id, email: user.email }, ACCESS_SECRET, {
-    expiresIn: '1h',
+    expiresIn: '15m',
   });
   const refreshToken = jwt.sign({ userId: user.id, email: user.email }, REFRESH_SECRET, {
     expiresIn: '7d',
+  });
+
+  await prisma.refreshToken.create({
+    data: {
+      tokenHash: hashToken(refreshToken),
+      userId: user.id,
+      expiresAt: new Date(Date.now() + SEVEN_DAYS_IN_MS),
+    },
   });
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV !== 'development',
     sameSite: process.env.NODE_ENV !== 'development' ? 'none' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: SEVEN_DAYS_IN_MS,
   });
 
   res.json({
@@ -130,14 +151,14 @@ export async function verifyEmail(req: Request, res: Response) {
     return;
   }
 
-  const user = await prisma.user.findFirst({
+  const emailToken = await prisma.emailToken.findFirst({
     where: {
-      verificationToken: hashToken(token),
-      tokenExpires: { gt: new Date() },
+      tokenHash: hashToken(token),
+      expiresAt: { gt: new Date() },
     },
   });
 
-  if (!user) {
+  if (!emailToken) {
     res
       .status(400)
       .json({ error: 'Token invalid or expired. Please login again to generate a new token' });
@@ -145,11 +166,16 @@ export async function verifyEmail(req: Request, res: Response) {
   }
 
   await prisma.user.update({
-    where: { id: user.id },
+    where: { id: emailToken.userId },
     data: {
       isVerified: true,
-      verificationToken: null,
-      tokenExpires: null,
+    },
+  });
+
+  await prisma.emailToken.delete({
+    where: {
+      userId: emailToken.userId,
+      id: emailToken.id,
     },
   });
 
@@ -157,20 +183,66 @@ export async function verifyEmail(req: Request, res: Response) {
 }
 
 export async function refreshToken(req: Request, res: Response) {
-  const refreshToken = req.cookies.refreshToken;
+  const oldRefreshToken = req.cookies.refreshToken;
 
-  if (!refreshToken) {
+  if (!oldRefreshToken) {
     res.status(401).json({ error: 'No refresh token provided' });
     return;
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string; email: string };
+    const decoded = jwt.verify(oldRefreshToken, REFRESH_SECRET) as {
+      userId: string;
+      email: string;
+    };
+
+    const storedToken = await prisma.refreshToken.findFirst({
+      where: {
+        userId: decoded.userId,
+        tokenHash: hashToken(oldRefreshToken),
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!storedToken) {
+      res.status(403).json({ error: 'Refresh token invalid or expired' });
+      return;
+    }
+    // token is valid
+    await prisma.refreshToken.deleteMany({
+      where: {
+        userId: decoded.userId,
+        tokenHash: hashToken(oldRefreshToken),
+      },
+    });
+
+    const newRefreshToken = jwt.sign(
+      { userId: decoded.userId, email: decoded.email },
+      REFRESH_SECRET,
+      {
+        expiresIn: '7d',
+      }
+    );
+
+    await prisma.refreshToken.create({
+      data: {
+        tokenHash: hashToken(newRefreshToken),
+        userId: decoded.userId,
+        expiresAt: new Date(Date.now() + SEVEN_DAYS_IN_MS),
+      },
+    });
+
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== 'development',
+      sameSite: process.env.NODE_ENV !== 'development' ? 'none' : 'lax',
+      maxAge: SEVEN_DAYS_IN_MS,
+    });
 
     const newAccessToken = jwt.sign(
       { userId: decoded.userId, email: decoded.email },
       ACCESS_SECRET,
-      { expiresIn: '1h' }
+      { expiresIn: '15m' }
     );
 
     res.json({
@@ -183,11 +255,26 @@ export async function refreshToken(req: Request, res: Response) {
   }
 }
 
+export async function logoutUser(req: Request, res: Response) {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (refreshToken) {
+    await prisma.refreshToken.deleteMany({
+      where: {
+        tokenHash: hashToken(refreshToken),
+      },
+    });
+  }
+
+  res.clearCookie('refreshToken');
+  res.status(200).json({ message: 'Logged out successfully ' });
+}
+
 function generateToken(): string {
   return randomBytes(32).toString('hex');
 }
 
-function generateTokenExpiry(): Date {
+function generateEmailTokenExpiry(): Date {
   return new Date(Date.now() + 1000 * 60 * 60);
 }
 
@@ -195,6 +282,6 @@ function constructVerificationLink(verificationToken: string): string {
   return `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
 }
 
-function hashToken(verificationToken: string): string {
-  return createHash('sha256').update(verificationToken).digest('hex');
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
