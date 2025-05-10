@@ -25,6 +25,7 @@ model User {
   Document            Document[]      @relation("AuthorDocuments")
   refreshTokens       RefreshToken[]
   emailTokens         EmailToken[]
+  Device              Device[]
 }
 
 model Document {
@@ -45,8 +46,11 @@ model RefreshToken {
 
   user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId              String
+  device              Device          @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId            String
 
   @@index([userId])
+  @@index([deviceId])
 }
 
 model EmailToken {
@@ -62,7 +66,18 @@ model EmailToken {
   @@index([userId])
 }
 
+model Device {
+  id                  String          @id @default(uuid())
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId              String
+  deviceHash          String
+  refreshTokens       RefreshToken[]
+  createdAt           DateTime        @default(now())
+  expiresAt           DateTime
+}
+
 enum EmailTokenType {
   VERIFY_EMAIL
   RESET_PASSWORD
+  VERIFY_NEW_DEVICE
 }

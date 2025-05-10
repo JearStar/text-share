@@ -3,13 +3,12 @@ import prisma from '../lib/prisma';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'crypto';
-import { Resend } from 'resend';
+import * as EmailService from './emailService';
+import * as TimeConstants from '../utils/timeConstants';
 
 const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.REFRESH_SECRET!;
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
-const RESEND_API_KEY = process.env.RESEND_API_KEY!;
-const SEVEN_DAYS_IN_MS = 1000 * 60 * 60 * 24 * 7;
 
 export async function signupUser(req: Request, res: Response) {
   const { email, password, name } = req.body;
@@ -24,43 +23,37 @@ export async function signupUser(req: Request, res: Response) {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-
-  const verificationToken = generateToken();
-  const tokenExpires = generateEmailTokenExpiry();
+  const { emailToken, emailTokenExpiry } = generateEmailToken(60);
 
   try {
-    const user = await prisma.user.create({
-      data: {
-        email: email,
-        password: hashedPassword,
-        name: name,
-      },
+    await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: email,
+          password: hashedPassword,
+          name: name,
+        },
+      });
+
+      await tx.emailToken.create({
+        data: {
+          tokenHash: hash(emailToken),
+          type: 'VERIFY_EMAIL',
+          expiresAt: emailTokenExpiry,
+          userId: user.id,
+        },
+      });
     });
 
-    await prisma.emailToken.create({
-      data: {
-        tokenHash: hashToken(verificationToken),
-        type: 'VERIFY_EMAIL',
-        expiresAt: tokenExpires,
-        userId: user.id,
-      },
-    });
+    const verificationLink = constructVerifyEmailLink(emailToken);
+    await EmailService.sendSignupVerificationEmail(email, verificationLink);
+
+    res.status(200).json({ message: 'Signup successful, check your email to verify the account.' });
   } catch (error) {
-    res.json({ error: error });
+    console.error(error);
+    res.status(500).json({ error: 'Internal Server Error' });
     return;
   }
-
-  const verificationLink = constructVerificationLink(verificationToken);
-
-  const resend = new Resend(RESEND_API_KEY);
-
-  await resend.emails.send({
-    from: 'test@resend.dev',
-    to: email,
-    subject: 'Account Verification',
-    html: `<p>Welcome to Text Share! Please verify your email with the following link: <a href="${verificationLink}">Verify Email</a></p>`,
-  });
-  res.status(200).json({ message: 'Signup successful, check your email to verify the account.' });
 }
 
 export async function loginUser(req: Request, res: Response) {
@@ -87,31 +80,52 @@ export async function loginUser(req: Request, res: Response) {
     });
     // there is no verify email token or there is an expired email token, issue a new one
     if (!token) {
-      const verificationToken = generateToken();
-      const tokenExpires = generateEmailTokenExpiry();
-      const verificationLink = constructVerificationLink(verificationToken);
+      const { emailToken, emailTokenExpiry } = generateEmailToken(60);
+      const verificationLink = constructVerifyEmailLink(emailToken);
       await prisma.emailToken.create({
         data: {
-          tokenHash: hashToken(verificationToken),
+          tokenHash: hash(emailToken),
           type: 'VERIFY_EMAIL',
-          expiresAt: tokenExpires,
+          expiresAt: emailTokenExpiry,
           userId: user.id,
         },
       });
 
-      const resend = new Resend(RESEND_API_KEY);
-
-      await resend.emails.send({
-        from: 'test@resend.dev',
-        to: email,
-        subject: 'New Verification Link',
-        html: `<p>Your previous verification link has expired. Please use this one: <a href="${verificationLink}">Verify Email</a></p>`,
-      });
+      await EmailService.sendSignupVerificationEmailExpired(email, verificationLink);
     }
 
     res.status(403).json({
       error: 'Your email is not verified. Please check your inbox for the verification link.',
     });
+    return;
+  }
+
+  const { userAgent, ipAddress, fingerprint } = getDeviceIdentifier(req);
+  const device = await prisma.device.findFirst({
+    where: {
+      userId: user.id,
+      deviceHash: hash(userAgent + ipAddress + fingerprint),
+      expiresAt: { gt: new Date() },
+    },
+  });
+
+  // login from new device
+  if (!device) {
+    const { emailToken, emailTokenExpiry } = generateEmailToken(15);
+    const verificationLink = constructVerifyLoginLink(emailToken);
+    await prisma.emailToken.create({
+      data: {
+        tokenHash: hash(emailToken),
+        type: 'VERIFY_NEW_DEVICE',
+        expiresAt: emailTokenExpiry,
+        userId: user.id,
+      },
+    });
+
+    await EmailService.sendLoginVerificationEmail(email, verificationLink, ipAddress, userAgent);
+    res
+      .status(403)
+      .json({ error: 'New login detected. Check your inbox for the verification link.' });
     return;
   }
 
@@ -124,9 +138,10 @@ export async function loginUser(req: Request, res: Response) {
 
   await prisma.refreshToken.create({
     data: {
-      tokenHash: hashToken(refreshToken),
+      tokenHash: hash(refreshToken),
       userId: user.id,
-      expiresAt: new Date(Date.now() + SEVEN_DAYS_IN_MS),
+      expiresAt: new Date(Date.now() + 7 * TimeConstants.ONE_DAY),
+      deviceId: device.id,
     },
   });
 
@@ -134,7 +149,7 @@ export async function loginUser(req: Request, res: Response) {
     httpOnly: true,
     secure: process.env.NODE_ENV !== 'development',
     sameSite: process.env.NODE_ENV !== 'development' ? 'none' : 'lax',
-    maxAge: SEVEN_DAYS_IN_MS,
+    maxAge: 7 * TimeConstants.ONE_DAY,
   });
 
   res.json({
@@ -153,8 +168,9 @@ export async function verifyEmail(req: Request, res: Response) {
 
   const emailToken = await prisma.emailToken.findFirst({
     where: {
-      tokenHash: hashToken(token),
+      tokenHash: hash(token),
       expiresAt: { gt: new Date() },
+      type: 'VERIFY_EMAIL',
     },
   });
 
@@ -164,6 +180,56 @@ export async function verifyEmail(req: Request, res: Response) {
       .json({ error: 'Token invalid or expired. Please login again to generate a new token' });
     return;
   }
+
+  await prisma.user.update({
+    where: {
+      id: emailToken.userId,
+    },
+    data: {
+      isVerified: true,
+    },
+  });
+
+  await prisma.emailToken.delete({
+    where: {
+      userId: emailToken.userId,
+      id: emailToken.id,
+    },
+  });
+
+  res.json({ message: 'Email verified successfully!' });
+}
+
+export async function verifyLogin(req: Request, res: Response) {
+  const { token } = req.query;
+
+  if (!token || typeof token !== 'string') {
+    res.status(400).json({ error: 'Invalid token' });
+    return;
+  }
+
+  const emailToken = await prisma.emailToken.findFirst({
+    where: {
+      tokenHash: hash(token),
+      expiresAt: { gt: new Date() },
+      type: 'VERIFY_NEW_DEVICE',
+    },
+  });
+
+  if (!emailToken) {
+    res
+      .status(400)
+      .json({ error: 'Token invalid or expired. Please login again to generate a new token' });
+    return;
+  }
+  const { userAgent, ipAddress, fingerprint } = getDeviceIdentifier(req);
+  await prisma.device.create({
+    data: {
+      userId: emailToken.userId,
+      deviceHash: hash(userAgent + ipAddress + fingerprint),
+      expiresAt: new Date(Date.now() + 30 * TimeConstants.ONE_DAY),
+    },
+  });
 
   await prisma.user.update({
     where: { id: emailToken.userId },
@@ -199,7 +265,7 @@ export async function refreshToken(req: Request, res: Response) {
     const storedToken = await prisma.refreshToken.findFirst({
       where: {
         userId: decoded.userId,
-        tokenHash: hashToken(oldRefreshToken),
+        tokenHash: hash(oldRefreshToken),
         expiresAt: { gt: new Date() },
       },
     });
@@ -212,7 +278,7 @@ export async function refreshToken(req: Request, res: Response) {
     await prisma.refreshToken.deleteMany({
       where: {
         userId: decoded.userId,
-        tokenHash: hashToken(oldRefreshToken),
+        tokenHash: hash(oldRefreshToken),
       },
     });
 
@@ -224,19 +290,20 @@ export async function refreshToken(req: Request, res: Response) {
       }
     );
 
-    await prisma.refreshToken.create({
-      data: {
-        tokenHash: hashToken(newRefreshToken),
-        userId: decoded.userId,
-        expiresAt: new Date(Date.now() + SEVEN_DAYS_IN_MS),
-      },
-    });
+    // TODO: Handle case where old refresh token is valid but device hash not found in DB
+    // await prisma.refreshToken.create({
+    //   data: {
+    //     tokenHash: hash(newRefreshToken),
+    //     userId: decoded.userId,
+    //     expiresAt: new Date(Date.now() + 7 * TimeConstants.ONE_DAY),
+    //   },
+    // });
 
     res.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV !== 'development',
       sameSite: process.env.NODE_ENV !== 'development' ? 'none' : 'lax',
-      maxAge: SEVEN_DAYS_IN_MS,
+      maxAge: 7 * TimeConstants.ONE_DAY,
     });
 
     const newAccessToken = jwt.sign(
@@ -249,9 +316,9 @@ export async function refreshToken(req: Request, res: Response) {
       message: 'Access token refreshed',
       token: newAccessToken,
     });
-  } catch (err) {
+  } catch (error) {
     res.status(403).json({ error: 'Something went wrong' });
-    console.log(err);
+    console.error(error);
   }
 }
 
@@ -261,7 +328,7 @@ export async function logoutUser(req: Request, res: Response) {
   if (refreshToken) {
     await prisma.refreshToken.deleteMany({
       where: {
-        tokenHash: hashToken(refreshToken),
+        tokenHash: hash(refreshToken),
       },
     });
   }
@@ -270,18 +337,34 @@ export async function logoutUser(req: Request, res: Response) {
   res.status(200).json({ message: 'Logged out successfully ' });
 }
 
-function generateToken(): string {
-  return randomBytes(32).toString('hex');
+export async function forgotPassword(req: Request, res: Response) {}
+export async function resetPassword(req: Request, res: Response) {}
+export async function updatePassword(req: Request, res: Response) {}
+
+function generateEmailToken(expiryInMinutes: number): {
+  emailToken: string;
+  emailTokenExpiry: Date;
+} {
+  const emailToken = randomBytes(32).toString('hex');
+  const emailTokenExpiry = new Date(Date.now() + expiryInMinutes * TimeConstants.ONE_MINUTE);
+  return { emailToken, emailTokenExpiry };
 }
 
-function generateEmailTokenExpiry(): Date {
-  return new Date(Date.now() + 1000 * 60 * 60);
+function constructVerifyEmailLink(token: string): string {
+  return `${API_BASE_URL}/api/auth/verify-email?token=${token}`;
 }
 
-function constructVerificationLink(verificationToken: string): string {
-  return `${API_BASE_URL}/api/auth/verify-email?token=${verificationToken}`;
+function constructVerifyLoginLink(token: string): string {
+  return `${API_BASE_URL}/api/auth/verify-login?token=${token}`;
 }
 
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+function hash(input: string): string {
+  return createHash('sha256').update(input).digest('hex');
+}
+
+function getDeviceIdentifier(req: Request) {
+  const userAgent: string = req.get('User-Agent') || '';
+  const ipAddress: string = req.ip || '';
+  const fingerprint: string = req.body.fingerprint || '';
+  return { userAgent, ipAddress, fingerprint };
 }
