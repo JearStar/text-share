@@ -13,7 +13,7 @@ const port = process.env.PORT || 4000;
 app.use(cors());
 app.use(cookieParser());
 app.use(express.json());
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 // Routes
 app.use('/api/auth', authRoutes);

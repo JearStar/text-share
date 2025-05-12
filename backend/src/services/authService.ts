@@ -8,6 +8,7 @@ import * as TimeConstants from '../utils/timeConstants';
 
 const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.REFRESH_SECRET!;
+const VERIFY_NEW_DEVICE_SECRET = process.env.VERIFY_NEW_DEVICE_SECRET!;
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
 
 export async function signupUser(req: Request, res: Response) {
@@ -111,16 +112,11 @@ export async function loginUser(req: Request, res: Response) {
 
   // login from new device
   if (!device) {
-    const { emailToken, emailTokenExpiry } = generateEmailToken(15);
-    const verificationLink = constructVerifyLoginLink(emailToken);
-    await prisma.emailToken.create({
-      data: {
-        tokenHash: hash(emailToken),
-        type: 'VERIFY_NEW_DEVICE',
-        expiresAt: emailTokenExpiry,
-        userId: user.id,
-      },
-    });
+    const verificationToken = generateDeviceVerificationToken(
+      user.id,
+      hash(userAgent + ipAddress + fingerprint)
+    );
+    const verificationLink = constructVerifyLoginLink(verificationToken);
 
     await EmailService.sendLoginVerificationEmail(email, verificationLink, ipAddress, userAgent);
     res
@@ -208,44 +204,42 @@ export async function verifyLogin(req: Request, res: Response) {
     return;
   }
 
-  const emailToken = await prisma.emailToken.findFirst({
+  const decoded = jwt.verify(token, VERIFY_NEW_DEVICE_SECRET) as {
+    userId: string;
+    deviceHash: string;
+    type: string;
+    exp: number;
+  };
+  if (decoded.type !== 'VERIFY_NEW_DEVICE') {
+    res.status(400).json({ error: 'Invalid token type' });
+    return;
+  }
+
+  if (Date.now() >= decoded.exp * 1000) {
+    res.status(400).json({ error: 'Token expired' });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
     where: {
-      tokenHash: hash(token),
-      expiresAt: { gt: new Date() },
-      type: 'VERIFY_NEW_DEVICE',
+      id: decoded.userId,
     },
   });
 
-  if (!emailToken) {
-    res
-      .status(400)
-      .json({ error: 'Token invalid or expired. Please login again to generate a new token' });
+  if (!user) {
+    res.status(400).json({ error: 'User not found' });
     return;
   }
-  const { userAgent, ipAddress, fingerprint } = getDeviceIdentifier(req);
+
   await prisma.device.create({
     data: {
-      userId: emailToken.userId,
-      deviceHash: hash(userAgent + ipAddress + fingerprint),
+      userId: user.id,
+      deviceHash: decoded.deviceHash,
       expiresAt: new Date(Date.now() + 30 * TimeConstants.ONE_DAY),
     },
   });
 
-  await prisma.user.update({
-    where: { id: emailToken.userId },
-    data: {
-      isVerified: true,
-    },
-  });
-
-  await prisma.emailToken.delete({
-    where: {
-      userId: emailToken.userId,
-      id: emailToken.id,
-    },
-  });
-
-  res.json({ message: 'Email verified successfully!' });
+  res.json({ message: 'Login successfully verified' });
 }
 
 export async function refreshToken(req: Request, res: Response) {
@@ -271,9 +265,14 @@ export async function refreshToken(req: Request, res: Response) {
     });
 
     if (!storedToken) {
-      res.status(403).json({ error: 'Refresh token invalid or expired' });
+      res
+        .status(403)
+        .json({
+          error: 'Refresh token invalid or expired. Please log in again to generate a new one.',
+        });
       return;
     }
+
     // token is valid
     await prisma.refreshToken.deleteMany({
       where: {
@@ -281,6 +280,20 @@ export async function refreshToken(req: Request, res: Response) {
         tokenHash: hash(oldRefreshToken),
       },
     });
+
+    const { userAgent, ipAddress, fingerprint } = getDeviceIdentifier(req);
+    const device = await prisma.device.findFirst({
+      where: {
+        userId: storedToken.userId,
+        deviceHash: hash(userAgent + ipAddress + fingerprint),
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!device) {
+      res.status(401).json({ error: 'Device not recognized' });
+      return;
+    }
 
     const newRefreshToken = jwt.sign(
       { userId: decoded.userId, email: decoded.email },
@@ -290,14 +303,14 @@ export async function refreshToken(req: Request, res: Response) {
       }
     );
 
-    // TODO: Handle case where old refresh token is valid but device hash not found in DB
-    // await prisma.refreshToken.create({
-    //   data: {
-    //     tokenHash: hash(newRefreshToken),
-    //     userId: decoded.userId,
-    //     expiresAt: new Date(Date.now() + 7 * TimeConstants.ONE_DAY),
-    //   },
-    // });
+    await prisma.refreshToken.create({
+      data: {
+        tokenHash: hash(newRefreshToken),
+        userId: decoded.userId,
+        expiresAt: new Date(Date.now() + 7 * TimeConstants.ONE_DAY),
+        deviceId: device.id,
+      },
+    });
 
     res.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
@@ -350,6 +363,15 @@ function generateEmailToken(expiryInMinutes: number): {
   return { emailToken, emailTokenExpiry };
 }
 
+function generateDeviceVerificationToken(userId: string, deviceHash: string) {
+  const payload = {
+    userId,
+    deviceHash,
+    type: 'VERIFY_NEW_DEVICE',
+  };
+  return jwt.sign(payload, VERIFY_NEW_DEVICE_SECRET, { expiresIn: '15m' });
+}
+
 function constructVerifyEmailLink(token: string): string {
   return `${API_BASE_URL}/api/auth/verify-email?token=${token}`;
 }
@@ -365,6 +387,7 @@ function hash(input: string): string {
 function getDeviceIdentifier(req: Request) {
   const userAgent: string = req.get('User-Agent') || '';
   const ipAddress: string = req.ip || '';
-  const fingerprint: string = req.body.fingerprint || '';
+  // const fingerprint: string = req.body.fingerprint || '';
+  const fingerprint: string = '';
   return { userAgent, ipAddress, fingerprint };
 }
