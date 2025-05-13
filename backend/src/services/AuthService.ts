@@ -10,14 +10,12 @@ const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.REFRESH_SECRET!;
 const VERIFY_NEW_DEVICE_SECRET = process.env.VERIFY_NEW_DEVICE_SECRET!;
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
-const STRONG_PASSWORD_REGEX =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?#&^_-])[A-Za-z\d@$!%*?#&^_-]{8,}$/;
 
 export async function signupUser(req: Request, res: Response) {
   try {
     const { email, password, name } = req.body;
 
-    if (!STRONG_PASSWORD_REGEX.test(password)) {
+    if (!isStrongPassword(password)) {
       res.status(400).json({
         error:
           'Password must be at least 8 characters long, contain an uppercase letter, a lowercase letter, a number, and a special character.',
@@ -426,7 +424,7 @@ export async function resetPassword(req: Request, res: Response) {
   try {
     const { token, newPassword } = req.body;
 
-    if (!STRONG_PASSWORD_REGEX.test(newPassword)) {
+    if (!isStrongPassword(newPassword)) {
       res.status(400).json({
         error:
           'Password must be at least 8 characters long, contain an uppercase letter, a lowercase letter, a number, and a special character.',
@@ -476,7 +474,49 @@ export async function resetPassword(req: Request, res: Response) {
   }
 }
 export async function updatePassword(req: Request, res: Response) {
+  const { oldPassword, newPassword } = req.body;
 
+  if (!isStrongPassword(newPassword)) {
+    res.status(400).json({
+      error:
+        'Password must be at least 8 characters long, contain an uppercase letter, a lowercase letter, a number, and a special character.',
+    });
+    return;
+  }
+
+  if (!req.user?.userId || !req.user?.email) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const { userId, email } = req.user;
+
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+      email: email,
+    },
+  });
+
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  if (!(await bcrypt.compare(oldPassword, user.password))) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({
+    where: {
+      id: user.id,
+    },
+    data: {
+      password: hashedPassword,
+    },
+  });
+
+  res.status(200).json({ message: 'Password updated successfully' });
 }
 
 function generateEmailToken(expiryInMinutes: number): {
@@ -511,6 +551,13 @@ function constructResetPasswordLink(token: string): string {
 
 function hash(input: string): string {
   return createHash('sha256').update(input).digest('hex');
+}
+
+function isStrongPassword(input: string): boolean {
+  // 8 long, uppercase, lowercase, number, special character
+  const STRONG_PASSWORD_REGEX =
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?#&^_-])[A-Za-z\d@$!%*?#&^_-]{8,}$/;
+  return STRONG_PASSWORD_REGEX.test(input);
 }
 
 function getDeviceIdentifier(req: Request) {

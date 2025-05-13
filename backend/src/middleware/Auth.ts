@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 
-const ACCESS_SECRET = process.env.ACCESS_SECRET!
+const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 
 export function verifyAccessToken(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.split(' ')[1];
@@ -12,7 +12,7 @@ export function verifyAccessToken(req: Request, res: Response, next: NextFunctio
   }
 
   try {
-    req.user = jwt.verify(token, ACCESS_SECRET) as { userId: string, email: string };
+    req.user = jwt.verify(token, ACCESS_SECRET) as { userId: string; email: string };
     next();
   } catch (err) {
     console.error(err);

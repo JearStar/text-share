@@ -1,13 +1,14 @@
 import express from 'express';
 import * as AuthService from '../services/AuthService';
 import rateLimit from 'express-rate-limit';
+import { verifyAccessToken } from '../middleware/Auth';
 
 const router = express.Router();
 
-const signupLimiter = rateLimit({
+const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
-  message: 'Too many signups, please try again later',
+  message: 'Too many password reset requests, please try again later',
 });
 
 const loginLimiter = rateLimit({
@@ -22,15 +23,35 @@ const refreshTokenLimiter = rateLimit({
   message: 'Too many token refresh attempts, please try again later',
 });
 
+const signupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  message: 'Too many signups, please try again later',
+});
+
+const verifyEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  message: 'Too many verify email requests, please try again later',
+});
+
+const verifyLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  message: 'Too many verify login requests, please try again later',
+});
+
 // Public Routes
-router.post('/signup', signupLimiter, AuthService.signupUser);
+router.post('/forgot-password', forgotPasswordLimiter, AuthService.forgotPassword);
 router.post('/login', loginLimiter, AuthService.loginUser);
-router.get('/verify-email', AuthService.verifyEmail);
-router.get('/verify-login', AuthService.verifyLogin);
 router.post('/refresh-token', refreshTokenLimiter, AuthService.refreshToken);
-router.post('/logout', AuthService.logoutUser);
-router.post('/forgot-password', AuthService.forgotPassword);
 router.post('/reset-password', AuthService.resetPassword);
-router.post('/update-password', AuthService.updatePassword);
+router.post('/signup', signupLimiter, AuthService.signupUser);
+router.get('/verify-email', verifyEmailLimiter, AuthService.verifyEmail);
+router.get('/verify-login', verifyLoginLimiter, AuthService.verifyLogin);
+
+// Private Routes
+router.post('/logout', verifyAccessToken, AuthService.logoutUser);
+router.post('/update-password', verifyAccessToken, AuthService.updatePassword);
 
 export default router;
