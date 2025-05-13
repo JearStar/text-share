@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
-import prisma from '../lib/prisma';
+import prisma from '../lib/Prisma';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'crypto';
-import * as EmailService from './emailService';
-import * as TimeConstants from '../utils/timeConstants';
+import * as EmailService from './EmailService';
+import * as TimeConstants from '../utils/TimeConstants';
 
 const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.REFRESH_SECRET!;
@@ -265,11 +265,9 @@ export async function refreshToken(req: Request, res: Response) {
     });
 
     if (!storedToken) {
-      res
-        .status(403)
-        .json({
-          error: 'Refresh token invalid or expired. Please log in again to generate a new one.',
-        });
+      res.status(403).json({
+        error: 'Refresh token invalid or expired. Please log in again to generate a new one.',
+      });
       return;
     }
 
@@ -350,7 +348,43 @@ export async function logoutUser(req: Request, res: Response) {
   res.status(200).json({ message: 'Logged out successfully ' });
 }
 
-export async function forgotPassword(req: Request, res: Response) {}
+export async function forgotPassword(req: Request, res: Response) {
+  const { email } = req.body;
+
+  const user = await prisma.user.findUnique({
+    where: {
+      email: email,
+    },
+  });
+
+  if (!user) {
+    res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
+    return;
+  }
+
+  // invalidate all prior reset tokens
+  await prisma.emailToken.deleteMany({
+    where: {
+      userId: user.id,
+      type: 'RESET_PASSWORD',
+    },
+  });
+
+  const { emailToken, emailTokenExpiry } = generateEmailToken(15);
+  await prisma.emailToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hash(emailToken),
+      expiresAt: emailTokenExpiry,
+      type: 'RESET_PASSWORD',
+    },
+  });
+
+  const resetPasswordLink = constructResetPasswordLink(emailToken);
+  await EmailService.sendForgotPasswordEmail(user.email, resetPasswordLink);
+
+  res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
+}
 export async function resetPassword(req: Request, res: Response) {}
 export async function updatePassword(req: Request, res: Response) {}
 
@@ -378,6 +412,10 @@ function constructVerifyEmailLink(token: string): string {
 
 function constructVerifyLoginLink(token: string): string {
   return `${API_BASE_URL}/api/auth/verify-login?token=${token}`;
+}
+
+function constructResetPasswordLink(token: string): string {
+  return `${API_BASE_URL}/api/auth/reset-password?token=${token}`;
 }
 
 function hash(input: string): string {

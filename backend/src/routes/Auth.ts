@@ -1,5 +1,5 @@
 import express from 'express';
-import * as AuthService from '../services/authService';
+import * as AuthService from '../services/AuthService';
 import rateLimit from 'express-rate-limit';
 
 const router = express.Router();

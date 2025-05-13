@@ -79,5 +79,4 @@ model Device {
 enum EmailTokenType {
   VERIFY_EMAIL
   RESET_PASSWORD
-  VERIFY_NEW_DEVICE
 }
