@@ -197,7 +197,7 @@ export async function refreshToken(req: Request, res: Response) {
     const { userAgent, ipAddress, fingerprint } = getDeviceIdentifier(req);
     const device = await prisma.device.findFirst({
       where: {
-        userId: storedToken.userId,
+        userId: decoded.userId,
         deviceHash: hash(userAgent + ipAddress + fingerprint),
         expiresAt: { gt: new Date() },
       },
@@ -207,6 +207,13 @@ export async function refreshToken(req: Request, res: Response) {
       res.status(401).json({ error: 'Device not recognized' });
       return;
     }
+
+    await prisma.refreshToken.deleteMany({
+      where: {
+        userId: decoded.userId,
+        deviceId: device.id,
+      },
+    });
 
     const newRefreshToken = jwt.sign(
       { userId: decoded.userId, email: decoded.email },
