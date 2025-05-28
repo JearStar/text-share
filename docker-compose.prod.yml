@@ -6,8 +6,16 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
+    networks:
+      - prod-network
 
   redis:
     image: redis:7-alpine
     container_name: redis-prod
     restart: unless-stopped
+    networks:
+      - prod-network
+
+networks:
+  prod-network:
+    driver: bridge

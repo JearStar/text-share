@@ -6,8 +6,16 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=staging
+    networks:
+      - stg-network
 
   redis:
     image: redis:7-alpine
     container_name: redis-stg
     restart: unless-stopped
+    networks:
+      - stg-network
+
+networks:
+  stg-network:
+    driver: bridge
