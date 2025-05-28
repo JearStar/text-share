@@ -9,7 +9,8 @@ import * as TimeConstants from '../utils/TimeConstants';
 const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.REFRESH_SECRET!;
 const VERIFY_NEW_DEVICE_SECRET = process.env.VERIFY_NEW_DEVICE_SECRET!;
-const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
+const BACKEND_BASE_URL =
+  process.env.BACKEND_BASE_URL || `http://localhost:${process.env.BACKEND_PORT || 4000}`;
 
 export async function forgotPassword(req: Request, res: Response) {
   try {
@@ -528,15 +529,15 @@ export async function updatePassword(req: Request, res: Response) {
 }
 
 function constructResetPasswordLink(token: string): string {
-  return `${API_BASE_URL}/api/auth/reset-password?token=${token}`;
+  return `${BACKEND_BASE_URL}/api/auth/reset-password?token=${token}`;
 }
 
 function constructVerifyEmailLink(token: string): string {
-  return `${API_BASE_URL}/api/auth/verify-email?token=${token}`;
+  return `${BACKEND_BASE_URL}/api/auth/verify-email?token=${token}`;
 }
 
 function constructVerifyLoginLink(token: string): string {
-  return `${API_BASE_URL}/api/auth/verify-login?token=${token}`;
+  return `${BACKEND_BASE_URL}/api/auth/verify-login?token=${token}`;
 }
 
 function generateDeviceVerificationToken(userId: string, deviceHash: string) {
