@@ -1,0 +1,13 @@
+services:
+  backend:
+    container_name: textshare-backend-prod
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-prod
+    restart: unless-stopped

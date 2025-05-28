@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'crypto';
 import * as EmailService from './EmailService';
 import * as TimeConstants from '../utils/TimeConstants';
+import { Prisma } from '@prisma/client';
 
 const ACCESS_SECRET = process.env.ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.REFRESH_SECRET!;
@@ -334,7 +335,7 @@ export async function signupUser(req: Request, res: Response) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const { emailToken, emailTokenExpiry } = generateEmailToken(60);
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const user = await tx.user.create({
         data: {
           email: email,
