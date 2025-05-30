@@ -1,4 +1,4 @@
-import resend from '../lib/Resend';
+import resend from '../utils/Resend';
 import * as EmailTemplates from '../utils/EmailTemplates';
 
 const FROM_EMAIL = 'test@resend.dev';

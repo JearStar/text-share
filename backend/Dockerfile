@@ -23,6 +23,7 @@ COPY --from=builder /usr/src/app/dist ./dist
 COPY --from=builder /usr/src/app/node_modules ./node_modules
 COPY --from=builder /usr/src/app/prisma ./prisma
 
+RUN apt-get update && apt-get install -y redis-tools
 
 EXPOSE 4000
 

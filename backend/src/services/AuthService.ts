@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import prisma from '../lib/Prisma';
+import prisma from '../utils/Prisma';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'crypto';
