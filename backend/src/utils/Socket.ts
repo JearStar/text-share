@@ -3,8 +3,10 @@ import { DocumentManager } from '../services/DocumentManager';
 import { pubClient } from './Redis';
 import { CursorPosition, DocumentUpdate, TextOperation } from '../types/Document';
 
+let documentManager: DocumentManager;
+
 export function setupSocket(io: Server) {
-  const documentManager: DocumentManager = new DocumentManager(pubClient);
+  documentManager = new DocumentManager(pubClient);
   io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
     let currentDocument: string | null = null;
@@ -86,4 +88,10 @@ export function setupSocket(io: Server) {
       }
     });
   });
+}
+
+export function shutdownSocket() {
+  if (documentManager) {
+    documentManager.shutdown();
+  }
 }

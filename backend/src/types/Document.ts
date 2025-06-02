@@ -19,6 +19,7 @@ export interface DocumentState {
   operations: TextOperation[];
   activeUsers: Set<string>;
   cursors: Map<string, CursorPosition>;
+  lastAccessed: number;
 }
 
 export interface DocumentUpdate {

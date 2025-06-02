@@ -4,11 +4,11 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/Auth';
 import documentRoutes from './routes/Documents';
-import { createServer } from 'http';
+import { createServer, Server } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { connectRedis, pubClient, subClient } from './utils/Redis';
-import { setupSocket } from './utils/Socket';
+import { setupSocket, shutdownSocket } from './utils/Socket';
 
 dotenv.config();
 
@@ -51,9 +51,23 @@ async function startServer() {
 
   setupSocket(io);
 
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
+  });
+
+  process.on('SIGTERM', () => handleShutdown(server));
+  process.on('SIGINT', () => handleShutdown(server));
+}
+
+async function handleShutdown(server: Server) {
+  console.log('Shutting down server...');
+  shutdownSocket();
+  await pubClient.quit();
+  await subClient.quit();
+  server.close(() => {
+    console.log('Server shut down complete');
+    process.exit(0);
   });
 }
 
-startServer();
+startServer().catch(console.error);
