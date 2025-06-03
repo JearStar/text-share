@@ -14,6 +14,7 @@ export interface CursorPosition {
 }
 
 export interface DocumentState {
+  docId: string;
   content: string;
   version: number;
   operations: TextOperation[];

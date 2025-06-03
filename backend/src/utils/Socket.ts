@@ -1,12 +1,12 @@
 import { Server } from 'socket.io';
 import { DocumentManager } from '../services/DocumentManager';
-import { pubClient } from './Redis';
+import { pubClient, subClient } from './Redis';
 import { CursorPosition, DocumentUpdate, TextOperation } from '../types/Document';
 
 let documentManager: DocumentManager;
 
 export function setupSocket(io: Server) {
-  documentManager = new DocumentManager(pubClient);
+  documentManager = new DocumentManager(pubClient, pubClient, subClient);
   io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
     let currentDocument: string | null = null;
