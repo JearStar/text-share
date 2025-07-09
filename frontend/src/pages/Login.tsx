@@ -29,8 +29,11 @@ import {
 } from '../styles/common';
 import { formStyles } from '../styles/components';
 import axios from 'axios';
+import { useTheme } from '@mui/material/styles';
+import { loginUser } from '../api/auth';
 
 const Login = () => {
+  const theme = useTheme();
   const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
@@ -39,11 +42,7 @@ const Login = () => {
     e.preventDefault();
 
     try {
-      const response = await axios.post(
-        '/api/auth/login',
-        { email, password },
-        { withCredentials: true }
-      );
+      const response = await loginUser(email, password);
       console.log('Login success', response.data);
     } catch (error: any) {
       if (error.response) {
@@ -61,7 +60,7 @@ const Login = () => {
           <Typography component="h1" variant="h4" sx={{ mb: 4, ...gradientText }}>
             Welcome Back
           </Typography>
-          <Box component="form" noValidate sx={formStyles.container}>
+          <Box component="form" noValidate sx={formStyles.container} onSubmit={handleSubmit}>
             <TextField
               margin="normal"
               required
@@ -92,6 +91,8 @@ const Login = () => {
               id="password"
               autoComplete="current-password"
               sx={inputField}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -105,6 +106,7 @@ const Login = () => {
                       onClick={() => setShowPassword(!showPassword)}
                       edge="end"
                       sx={iconButton}
+                      tabIndex={-1}
                     >
                       {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
@@ -112,12 +114,18 @@ const Login = () => {
                 ),
               }}
             />
+            {/* Disable button if email or password is empty */}
             <Button
               type="submit"
               fullWidth
               variant="contained"
               size="large"
-              sx={formStyles.submitButton}
+              sx={{
+                ...formStyles.submitButton,
+                backgroundColor: (!email || !password) ? (theme.custom?.disabledButtonColor || '#888') : undefined,
+                cursor: (!email || !password) ? 'not-allowed' : undefined
+              }}
+              disabled={!email || !password}
             >
               Sign In
             </Button>

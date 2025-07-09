@@ -16,6 +16,7 @@ const app = express();
 const port = process.env.PORT || 4000;
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL!;
 
+
 async function startServer() {
   await connectRedis();
 

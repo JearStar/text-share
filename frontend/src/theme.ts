@@ -1,5 +1,22 @@
 import { createTheme } from '@mui/material/styles';
 
+// Module augmentation for custom theme properties
+import { Theme } from '@mui/material/styles';
+
+declare module '@mui/material/styles' {
+  interface Theme {
+    custom: {
+      disabledButtonColor: string;
+    };
+  }
+  // allow configuration using `createTheme`
+  interface ThemeOptions {
+    custom?: {
+      disabledButtonColor?: string;
+    };
+  }
+}
+
 const theme = createTheme({
   palette: {
     mode: 'dark',
@@ -28,6 +45,9 @@ const theme = createTheme({
       secondary: '#94a3b8',
     },
     divider: 'rgba(148, 163, 184, 0.1)',
+  },
+  custom: {
+    disabledButtonColor: '#888',
   },
   typography: {
     fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
